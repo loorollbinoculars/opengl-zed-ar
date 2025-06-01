@@ -73,18 +73,18 @@ def main():
     viewer = GLViewer(v_fov)
     viewer.init(1, sys.argv)
     image = sl.Mat()
-    point_cloud = sl.Mat(res.width, res.height, sl.MAT_TYPE.F32_C3, sl.MEM.CPU)
+    point_cloud = sl.Mat(res.width, res.height, sl.MAT_TYPE.F32_C1, sl.MEM.CPU)
 
     while viewer.is_available():
         if zed.grab(runtime_params) == sl.ERROR_CODE.SUCCESS:
             zed.retrieve_measure(
-                point_cloud, sl.MEASURE.XYZ, sl.MEM.CPU, res)
+                point_cloud, sl.MEASURE.DEPTH, sl.MEM.CPU, res)
             zed.get_position(cam_pose, sl.REFERENCE_FRAME.WORLD)
             # Print camera position in world coordinates
             zed.retrieve_image(
                 image, sl.VIEW.LEFT, sl.MEM.CPU, res)
             viewer.updateData(
-                cam_pose.pose_data(), image)
+                cam_pose.pose_data(), image, point_cloud)
     viewer.exit()
     zed.close()
 

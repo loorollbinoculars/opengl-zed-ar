@@ -14,50 +14,6 @@ from objects import FullScreenQuad, Triangle, Cube
 
 M_PI = 3.1415926
 
-MESH_VERTEX_SHADER = """
-# version 330 core
-layout(location = 0) in vec3 in_Vertex;
-layout(location = 1) in vec4 in_Color;
-uniform mat4 u_mvpMatrix;
-out vec4 b_color;
-void main() {
-    b_color = in_Color;
-    gl_Position = u_mvpMatrix * vec4(in_Vertex, 1);
-}
-"""
-
-MESH_FRAGMENT_SHADER = """
-# version 330 core
-in vec4 b_color;
-layout(location = 0) out vec4 out_Color;
-void main() {
-   out_Color = b_color;
-}
-"""
-
-SCREEN_VERT = """
-#version 330 core
-layout(location = 0) in vec2 in_Pos;   // −1..+1 clip-space
-layout(location = 1) in vec2 in_UV;    // 0..1 texture coords
-out vec2 uv;
-void main() {
-    uv = in_UV;
-    uv.y = 1.0 - uv.y;  // flip the y coordinate for OpenGL
-    uv.x = 1.0 - uv.x;  // flip the x coordinate for OpenGL
-    gl_Position = vec4(in_Pos, 1.0, 1.0);   // already in clip-space
-}
-"""
-
-SCREEN_FRAG = """
-#version 330 core
-in vec2 uv;
-uniform sampler2D u_tex;
-out vec4 out_Color;
-void main() {
-    out_Color = texture(u_tex, uv);
-}
-"""
-
 
 class GLViewer:
     def __init__(self, camera_v_fov):
@@ -65,7 +21,8 @@ class GLViewer:
         self.mutex = Lock()
         self.camera = CameraGL(camera_v_fov)
         self.background = FullScreenQuad(sl.Resolution(1920, 1080))
-        self.triangle = Cube(False, 0.1, camera_v_fov)
+        self.cubes = [Cube(False, 0.1, camera_v_fov, [i, j])
+                      for i in range(-3, 3) for j in range(-3, 3)]
 
     def init(self, _argc, _argv):  # _params = sl.CameraParameters
         glutInit(_argc, _argv)
@@ -101,7 +58,8 @@ class GLViewer:
 
         # Initialise objects:
         self.background.init()
-        self.triangle.init()
+        for cube in self.cubes:
+            cube.init()
 
     def is_available(self):
         if self.available:
@@ -112,9 +70,9 @@ class GLViewer:
         if ord(key) == 27:
             self.exit()
 
-    def updateData(self, extrinsic_matrix: sl.Transform, mat):
+    def updateData(self, extrinsic_matrix: sl.Transform, mat, depth):
         self.mutex.acquire()
-        self.background.update(mat)
+        self.background.update(mat, depth)
         extrinsic_matrix.inverse()
         self.camera.viewMatrix = extrinsic_matrix.m
         self.mutex.release()
@@ -137,12 +95,11 @@ class GLViewer:
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
             glClearColor(
                 self.bckgrnd_clr[0], self.bckgrnd_clr[1], self.bckgrnd_clr[2], 1.)
-
-            self.mutex.acquire()
-            self.background.draw()
-            self.triangle.draw()
-            self.triangle.viewMatrix = self.camera.viewMatrix
-            self.mutex.release()
+            with self.mutex:
+                for cube in self.cubes:
+                    cube.viewMatrix = self.camera.viewMatrix
+                    cube.draw()
+                self.background.draw()
 
             glutSwapBuffers()
             glutPostRedisplay()

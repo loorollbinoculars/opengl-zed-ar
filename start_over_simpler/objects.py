@@ -7,6 +7,12 @@ import numpy as np
 from shader import Shader
 import math
 
+
+# TODO:
+# - Add a simple 3D object class that can be used to draw the XYZ axis and the origin of the world.
+# - Figure out if you can just use the depth map, scale it to [0, 1], and use its values as the Z coordinate of the Screen vertex shader.!!!!
+
+
 SCREEN_VERT = """
 #version 330 core
 layout(location = 0) in vec2 in_Pos;   // -1..+1 clip-space
@@ -23,9 +29,11 @@ SCREEN_FRAG = """
 #version 330 core
 in vec2 uv;
 uniform sampler2D u_tex;
+uniform sampler2D u_depthTex;  // For depth rendering
 out vec4 out_Color;
 void main() {
     out_Color = texture(u_tex, uv);
+    gl_FragDepth = texture(u_depthTex, uv).r;
 }
 """
 
@@ -93,6 +101,8 @@ class FullScreenQuad:
 
         self.tex_loc = glGetUniformLocation(
             self.shader.get_program_id(), "u_tex")
+        self.depth_tex_loc = glGetUniformLocation(
+            self.shader.get_program_id(), "u_depthTex")
 
         #  --------- allocate empty texture once ----------
         self.rgb_tex = glGenTextures(1)
@@ -103,17 +113,28 @@ class FullScreenQuad:
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        self.depth_tex = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, self.depth_tex)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F,
+                     self.resolution.width, self.resolution.height,
+                     0, GL_RED, GL_FLOAT, None)
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
 
         glBindTexture(GL_TEXTURE_2D, 0)
 
     def draw(self):
         """Draws the full-screen quad with the bound texture."""
-        glDisable(GL_DEPTH_TEST)
-
+        # glDisable(GL_DEPTH_TEST)
+        glDepthMask(GL_FALSE)
         glUseProgram(self.shader.get_program_id())
         glActiveTexture(GL_TEXTURE0)
         glBindTexture(GL_TEXTURE_2D, self.rgb_tex)
         glUniform1i(self.tex_loc, 0)          # texture unit 0
+        glActiveTexture(GL_TEXTURE1)
+        glBindTexture(GL_TEXTURE_2D, self.depth_tex)
+        glUniform1i(self.depth_tex_loc, 1)          # texture unit 0
 
         glBindVertexArray(self.quadVAO)
         glDrawArrays(self.drawing_type, 0, 6)
@@ -121,16 +142,21 @@ class FullScreenQuad:
 
         glBindTexture(GL_TEXTURE_2D, 0)
         glUseProgram(0)
-
+        glDepthMask(GL_TRUE)                  # restore depth mask
         glEnable(GL_DEPTH_TEST)               # restore for 3-D stuff
 
-    def update(self, image: sl.Mat):
+    def update(self, image: sl.Mat, depth_map: sl.Mat):
         """Updates the texture to be displayed on the quad."""
         glBindTexture(GL_TEXTURE_2D, self.rgb_tex)
         glTexSubImage2D(GL_TEXTURE_2D, 0,
                         0, 0, image.get_width(), image.get_height(),
                         GL_BGRA, GL_UNSIGNED_BYTE,
                         ctypes.c_void_p(image.get_pointer()))   # zero-copy upload
+        glBindTexture(GL_TEXTURE_2D, self.depth_tex)
+        glTexSubImage2D(GL_TEXTURE_2D, 0,
+                        0, 0, depth_map.get_width(), depth_map.get_height(),
+                        GL_RED, GL_FLOAT,
+                        ctypes.c_void_p(depth_map.get_pointer()))   # zero-copy upload
         glBindTexture(GL_TEXTURE_2D, 0)
 
 
@@ -181,7 +207,7 @@ class Triangle:
 
 
 class Cube:
-    def __init__(self, static=True, scale=1.0, v_fov=70.0):
+    def __init__(self, static=True, scale=1.0, v_fov=70.0, position2D=None):
         self.vertices = np.array([
             -1.0, -1.0, -1.0,
             1.0, -1.0, -1.0,
@@ -206,7 +232,10 @@ class Cube:
         self.model = np.eye(4, dtype=np.float32)        # identity
         # optional uniform scale
         self.model[0:3, 0:3] *= scale
-        self.model[2, 3] = -2.0
+        if position2D:
+            self.model[0:3:2, 3] = position2D
+        else:
+            self.model[0:3:2, 3] = np.random.random(2)
         self.model[1, 3] = scale/2
         self.viewMatrix = np.eye(4, dtype=np.float32)  # identity
         self.proj = self._perspective(v_fov, 16/9, 0.1, 100.0)
