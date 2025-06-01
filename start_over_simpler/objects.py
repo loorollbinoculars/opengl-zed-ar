@@ -1,0 +1,385 @@
+from OpenGL.GL import *
+from OpenGL.GLUT import *
+from OpenGL.GLU import *
+import array
+import pyzed.sl as sl
+import numpy as np
+from shader import Shader
+import math
+
+SCREEN_VERT = """
+#version 330 core
+layout(location = 0) in vec2 in_Pos;   // -1..+1 clip-space
+layout(location = 1) in vec2 in_UV;    // 0..1 texture coords
+out vec2 uv;
+void main() {
+    uv = in_UV;
+    uv.y = 1.0 - uv.y;  // flip the y coordinate for OpenGL
+    uv.x = 1.0 - uv.x;  // flip the x coordinate for OpenGL
+    gl_Position = vec4(in_Pos, 1.0, 1.0);   // already in clip-space, at the back
+}
+"""
+
+SCREEN_FRAG = """
+#version 330 core
+in vec2 uv;
+uniform sampler2D u_tex;
+out vec4 out_Color;
+void main() {
+    out_Color = texture(u_tex, uv);
+}
+"""
+
+TRIANGLE_VERTEX_SHADER = """
+#version 330 core
+layout(location = 0) in vec3 in_Vertex;
+uniform mat4 u_mvpMatrix;
+void main() {
+    gl_Position = vec4(in_Vertex, 1);
+}
+"""
+TRIANGLE_FRAGMENT_SHADER = """
+#version 330 core
+out vec4 out_Color;
+void main() {
+    out_Color = vec4(1.0,0.0,0.0,1.0);  // Red triangle
+}
+"""
+
+CUBE_PROJECTION_SHADER = """
+#version 330 core
+layout(location = 0) in vec3 in_Vertex;
+uniform mat4 u_mvpMatrix;   // Model-View-Projection matrix
+void main() {
+    gl_Position = u_mvpMatrix * vec4(in_Vertex, 1);
+}
+"""
+
+
+class FullScreenQuad:
+    """A simple full-screen quad for rendering textures."""
+
+    def __init__(self, resolution):
+        self.is_init = False
+        self.resolution = resolution
+        self.drawing_type = GL_TRIANGLES
+        self.quad = np.array([
+            -1, -1,   0, 0,
+            1, -1,   1, 0,
+            1,  1,   1, 1,
+            -1, -1,   0, 0,
+            1,  1,   1, 1,
+            -1,  1,   0, 1
+        ], dtype=np.float32)
+
+    def init(self):
+        self.shader = Shader(SCREEN_VERT, SCREEN_FRAG)
+
+        self.quadVAO = glGenVertexArrays(1)
+        self.quadVBO = glGenBuffers(1)
+        glBindVertexArray(self.quadVAO)
+        glBindBuffer(GL_ARRAY_BUFFER, self.quadVBO)
+        glBufferData(GL_ARRAY_BUFFER, self.quad.nbytes,
+                     self.quad, GL_STATIC_DRAW)
+
+        # positions
+        glEnableVertexAttribArray(0)
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE,
+                              4*4, ctypes.c_void_p(0))
+        # uvs
+        glEnableVertexAttribArray(1)
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE,
+                              4*4, ctypes.c_void_p(8))
+        glBindVertexArray(0)
+
+        self.tex_loc = glGetUniformLocation(
+            self.shader.get_program_id(), "u_tex")
+
+        #  --------- allocate empty texture once ----------
+        self.rgb_tex = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, self.rgb_tex)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+                     self.resolution.width, self.resolution.height,
+                     0, GL_BGRA, GL_UNSIGNED_BYTE, None)
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+
+        glBindTexture(GL_TEXTURE_2D, 0)
+
+    def draw(self):
+        """Draws the full-screen quad with the bound texture."""
+        glDisable(GL_DEPTH_TEST)
+
+        glUseProgram(self.shader.get_program_id())
+        glActiveTexture(GL_TEXTURE0)
+        glBindTexture(GL_TEXTURE_2D, self.rgb_tex)
+        glUniform1i(self.tex_loc, 0)          # texture unit 0
+
+        glBindVertexArray(self.quadVAO)
+        glDrawArrays(self.drawing_type, 0, 6)
+        glBindVertexArray(0)
+
+        glBindTexture(GL_TEXTURE_2D, 0)
+        glUseProgram(0)
+
+        glEnable(GL_DEPTH_TEST)               # restore for 3-D stuff
+
+    def update(self, image: sl.Mat):
+        """Updates the texture to be displayed on the quad."""
+        glBindTexture(GL_TEXTURE_2D, self.rgb_tex)
+        glTexSubImage2D(GL_TEXTURE_2D, 0,
+                        0, 0, image.get_width(), image.get_height(),
+                        GL_BGRA, GL_UNSIGNED_BYTE,
+                        ctypes.c_void_p(image.get_pointer()))   # zero-copy upload
+        glBindTexture(GL_TEXTURE_2D, 0)
+
+
+class Triangle:
+    def __init__(self, position=[0, 0, 0], static=True):
+        self.vertices = np.array([
+            -1.0, -1.0, 0.0,
+            1.0, 1.0, 0.0,
+            1.0, -1.0,  0.0,
+        ], dtype=np.float32)
+
+        self.indices = np.array([0, 1, 2], dtype=np.uint32)
+        self.static = static
+        self.mvp = np.eye(4, dtype=np.float32)
+        self.mvp[:3, 3] = position
+
+    def init(self):
+        self.shader = Shader(TRIANGLE_VERTEX_SHADER, TRIANGLE_FRAGMENT_SHADER)
+
+        self.vao = glGenVertexArrays(1)
+        self.vbo = glGenBuffers(1)
+        self.ebo = glGenBuffers(1)
+        usage = GL_STATIC_DRAW if self.static else GL_DYNAMIC_DRAW
+
+        glBindVertexArray(self.vao)
+
+        glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
+        glBufferData(GL_ARRAY_BUFFER, self.vertices.nbytes,
+                     self.vertices, usage)
+
+        glEnableVertexAttribArray(0)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, self.indices.nbytes,
+                     self.indices, usage)
+
+        glBindVertexArray(0)
+
+        self.index_count = len(self.indices)
+
+    def draw(self, *_args, **_kwargs):
+        glUseProgram(self.shader.get_program_id())
+        glBindVertexArray(self.vao)
+        glDrawElements(GL_TRIANGLES, self.index_count, GL_UNSIGNED_INT, None)
+        glBindVertexArray(0)
+        glUseProgram(0)
+
+
+class Cube:
+    def __init__(self, static=True, scale=1.0):
+        self.vertices = np.array([
+            -1.0, -1.0, -1.0,
+            1.0, -1.0, -1.0,
+            1.0,  1.0, -1.0,
+            -1.0,  1.0, -1.0,
+            -1.0, -1.0,  1.0,
+            1.0, -1.0,  1.0,
+            1.0,  1.0,  1.0,
+            -1.0,  1.0,  1.0
+        ], dtype=np.float32)
+
+        self.indices = np.array([
+            0, 1, 2, 2, 3, 0,
+            4, 5, 6, 6, 7, 4,
+            0, 4, 5, 5, 1, 0,
+            2, 6, 7, 7, 3, 2,
+            3, 7, 4, 4, 0, 3,
+            5, 6, 2, 2, 1, 5
+        ], dtype=np.uint32)
+
+        self.static = static
+        self.model = np.eye(4, dtype=np.float32) * scale
+        self.model[2, 3] = 10.0
+
+        self.proj = self._perspective(70.0, 1.0, 0.1, 100.0) @ self.model
+        print(self.model)
+        print(self.proj)
+        print(self._perspective(70.0, 1.0, 0.1, 100.0))
+
+    # ------------------------------------------------------------------ init
+    def init(self):
+        self.shader = Shader(CUBE_PROJECTION_SHADER, TRIANGLE_FRAGMENT_SHADER)
+
+        # ---- VBO / VAO boiler-plate (unchanged) ----
+        self.vao = glGenVertexArrays(1)
+        self.vbo = glGenBuffers(1)
+        self.ebo = glGenBuffers(1)
+        usage = GL_STATIC_DRAW if self.static else GL_DYNAMIC_DRAW
+
+        glBindVertexArray(self.vao)
+
+        glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
+        glBufferData(GL_ARRAY_BUFFER, self.vertices.nbytes,
+                     self.vertices, usage)
+
+        glEnableVertexAttribArray(0)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, self.indices.nbytes,
+                     self.indices, usage)
+
+        glBindVertexArray(0)
+        self.index_count = len(self.indices)
+
+        self.mvp_loc = glGetUniformLocation(
+            self.shader.get_program_id(), "u_mvpMatrix")
+
+    def draw(self):
+        glUseProgram(self.shader.get_program_id())
+        # Just do the perspective projection, nothing else.
+        glUniformMatrix4fv(self.mvp_loc, 1, GL_FALSE, self.proj)
+
+        glBindVertexArray(self.vao)
+        glDrawElements(GL_TRIANGLES, self.index_count, GL_UNSIGNED_INT, None)
+
+        glBindVertexArray(0)
+        glUseProgram(0)
+
+    @staticmethod
+    def _perspective(fov_y, aspect, z_near, z_far):
+        """Return a 4x4 perspective projection matrix as np.float32."""
+        f = 1.0 / math.tan(math.radians(fov_y) * 0.5)
+        proj = np.zeros((4, 4), dtype=np.float32)
+        proj[0, 0] = f / aspect
+        proj[1, 1] = f
+        proj[2, 2] = (z_far + z_near) / (z_near - z_far)
+        proj[2, 3] = (2 * z_far * z_near) / (z_near - z_far)
+        proj[3, 2] = -1.0
+        return proj
+
+
+class Simple3DObject:
+    def __init__(self, _is_static, drawing_type=GL_TRIANGLES, pts_size=3, clr_size=3):
+        self.is_init = False
+        self.drawing_type = drawing_type
+        self.is_static = _is_static
+        self.clear()
+        self.pt_type = pts_size
+        self.clr_type = clr_size
+        self.data = sl.Mat()
+
+    def clear(self):
+        """Initialise internal arrays for vertices, colors, and indices."""
+        self.vertices = array.array('f')
+        self.colors = array.array('f')
+        self.indices = array.array('I')
+        self.elementbufferSize = 0
+
+    def add_pt(self, _pts):  # _pts [x,y,z]
+        for pt in _pts:
+            self.vertices.append(pt)
+
+    def add_clr(self, _clrs):    # _clr [r,g,b]
+        for clr in _clrs:
+            self.colors.append(clr)
+
+    def add_point_clr(self, _pt, _clr):
+        self.add_pt(_pt)
+        self.add_clr(_clr)
+        self.indices.append(len(self.indices))
+
+    def add_line(self, _p1, _p2, _clr):
+        self.add_point_clr(_p1, _clr)
+        self.add_point_clr(_p2, _clr)
+
+    def addFace(self, p1, p2, p3, clr):
+        self.add_point_clr(p1, clr)
+        self.add_point_clr(p2, clr)
+        self.add_point_clr(p3, clr)
+
+    def push_to_GPU(self):
+        if (self.is_init == False):
+            self.vboID = glGenBuffers(3)
+            self.is_init = True
+
+        if (self.is_static):
+            type_draw = GL_STATIC_DRAW
+        else:
+            type_draw = GL_DYNAMIC_DRAW
+
+        if len(self.vertices):
+            glBindBuffer(GL_ARRAY_BUFFER, self.vboID[0])
+            glBufferData(GL_ARRAY_BUFFER, len(self.vertices) * self.vertices.itemsize,
+                         (GLfloat * len(self.vertices))(*self.vertices), type_draw)
+
+        if len(self.colors):
+            glBindBuffer(GL_ARRAY_BUFFER, self.vboID[1])
+            glBufferData(GL_ARRAY_BUFFER, len(self.colors) * self.colors.itemsize,
+                         (GLfloat * len(self.colors))(*self.colors), type_draw)
+
+        if len(self.indices):
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.vboID[2])
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, len(
+                self.indices) * self.indices.itemsize, (GLuint * len(self.indices))(*self.indices), type_draw)
+
+        self.elementbufferSize = len(self.indices)
+
+    def init(self, res):
+        if (self.is_init == False):
+            self.vboID = glGenBuffers(3)
+            self.is_init = True
+
+        if (self.is_static):
+            type_draw = GL_STATIC_DRAW
+        else:
+            type_draw = GL_DYNAMIC_DRAW
+
+        self.elementbufferSize = res.width * res.height
+
+        glBindBuffer(GL_ARRAY_BUFFER, self.vboID[0])
+        glBufferData(GL_ARRAY_BUFFER, self.elementbufferSize *
+                     self.pt_type * self.vertices.itemsize, None, type_draw)
+
+        if (self.clr_type):
+            glBindBuffer(GL_ARRAY_BUFFER, self.vboID[1])
+            glBufferData(GL_ARRAY_BUFFER, self.elementbufferSize *
+                         self.clr_type * self.colors.itemsize, None, type_draw)
+
+        for i in range(0, self.elementbufferSize):
+            self.indices.append(i+1)
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.vboID[2])
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, len(self.indices) * self.indices.itemsize,
+                     (GLuint * len(self.indices))(*self.indices), type_draw)
+
+    def setPoints(self, depth_map):
+        glBindBuffer(GL_ARRAY_BUFFER, self.vboID[0])
+        glBufferSubData(GL_ARRAY_BUFFER, 0, self.elementbufferSize * self.pt_type *
+                        self.vertices.itemsize, ctypes.c_void_p(depth_map.get_pointer()))
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+    def draw(self):
+        if (self.elementbufferSize):
+            glEnableVertexAttribArray(0)
+            glBindBuffer(GL_ARRAY_BUFFER, self.vboID[0])
+            glVertexAttribPointer(0, self.pt_type, GL_FLOAT, GL_FALSE, 0, None)
+
+            if (self.clr_type):
+                glEnableVertexAttribArray(1)
+                glBindBuffer(GL_ARRAY_BUFFER, self.vboID[1])
+                glVertexAttribPointer(
+                    1, self.clr_type, GL_FLOAT, GL_FALSE, 0, None)
+
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.vboID[2])
+            glDrawElements(self.drawing_type,
+                           self.elementbufferSize, GL_UNSIGNED_INT, None)
+
+            glDisableVertexAttribArray(0)
+            glDisableVertexAttribArray(1)
