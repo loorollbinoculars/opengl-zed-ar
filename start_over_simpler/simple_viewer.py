@@ -65,7 +65,7 @@ class GLViewer:
         self.mutex = Lock()
         self.camera = CameraGL(camera_v_fov)
         self.background = FullScreenQuad(sl.Resolution(1920, 1080))
-        self.triangle = Cube(False, 1)
+        self.triangle = Cube(False, 0.1, camera_v_fov)
 
     def init(self, _argc, _argv):  # _params = sl.CameraParameters
         glutInit(_argc, _argv)
@@ -112,10 +112,11 @@ class GLViewer:
         if ord(key) == 27:
             self.exit()
 
-    def updateData(self, extrinsic_matrix, mat):
+    def updateData(self, extrinsic_matrix: sl.Transform, mat):
         self.mutex.acquire()
         self.background.update(mat)
-        self.camera.extrinsic = extrinsic_matrix  # MIGHT NEED TO BE TRANSPOSED!!
+        extrinsic_matrix.inverse()
+        self.camera.viewMatrix = extrinsic_matrix.m
         self.mutex.release()
 
     def idle(self):
@@ -140,6 +141,7 @@ class GLViewer:
             self.mutex.acquire()
             self.background.draw()
             self.triangle.draw()
+            self.triangle.viewMatrix = self.camera.viewMatrix
             self.mutex.release()
 
             glutSwapBuffers()
@@ -151,7 +153,7 @@ class CameraGL:
         self.znear = 0.5
         self.zfar = 100.
         self.fov = camera_v_fov
-        self.viewMatrix = sl.Transform()  # View matrix in practice
+        self.viewMatrix = np.eye(4)  # View matrix in practice
         self.projectionMatrix = sl.Matrix4f()
         self.vpMatrix = sl.Matrix4f()
         self.projectionMatrix.set_identity()
@@ -159,8 +161,7 @@ class CameraGL:
 
     def update(self, new_extrinsic):
         """Update the view-projection matrix based on the current extrinsic matrix."""
-        self.extrinsic = new_extrinsic
-        self.vpMatrix = self.projectionMatrix * self.extrinsic
+        self.viewMatrix = new_extrinsic
 
     def setProjection(self, camera_v_fov, im_ratio):
         """Set the projection matrix based on the vertical field of view and image aspect ratio."""

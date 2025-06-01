@@ -15,7 +15,6 @@ out vec2 uv;
 void main() {
     uv = in_UV;
     uv.y = 1.0 - uv.y;  // flip the y coordinate for OpenGL
-    uv.x = 1.0 - uv.x;  // flip the x coordinate for OpenGL
     gl_Position = vec4(in_Pos, 1.0, 1.0);   // already in clip-space, at the back
 }
 """
@@ -182,7 +181,7 @@ class Triangle:
 
 
 class Cube:
-    def __init__(self, static=True, scale=1.0):
+    def __init__(self, static=True, scale=1.0, v_fov=70.0):
         self.vertices = np.array([
             -1.0, -1.0, -1.0,
             1.0, -1.0, -1.0,
@@ -204,19 +203,17 @@ class Cube:
         ], dtype=np.uint32)
 
         self.static = static
-        self.model = np.eye(4, dtype=np.float32) * scale
-        self.model[2, 3] = 10.0
+        self.model = np.eye(4, dtype=np.float32)        # identity
+        # optional uniform scale
+        self.model[0:3, 0:3] *= scale
+        self.model[2, 3] = -2.0
+        self.model[1, 3] = scale/2
+        self.viewMatrix = np.eye(4, dtype=np.float32)  # identity
+        self.proj = self._perspective(v_fov, 16/9, 0.1, 100.0)
 
-        self.proj = self._perspective(70.0, 1.0, 0.1, 100.0) @ self.model
-        print(self.model)
-        print(self.proj)
-        print(self._perspective(70.0, 1.0, 0.1, 100.0))
-
-    # ------------------------------------------------------------------ init
     def init(self):
         self.shader = Shader(CUBE_PROJECTION_SHADER, TRIANGLE_FRAGMENT_SHADER)
 
-        # ---- VBO / VAO boiler-plate (unchanged) ----
         self.vao = glGenVertexArrays(1)
         self.vbo = glGenBuffers(1)
         self.ebo = glGenBuffers(1)
@@ -243,8 +240,8 @@ class Cube:
 
     def draw(self):
         glUseProgram(self.shader.get_program_id())
-        # Just do the perspective projection, nothing else.
-        glUniformMatrix4fv(self.mvp_loc, 1, GL_FALSE, self.proj)
+        glUniformMatrix4fv(self.mvp_loc, 1, GL_TRUE,
+                           self.proj @ self.viewMatrix @ self.model)
 
         glBindVertexArray(self.vao)
         glDrawElements(GL_TRIANGLES, self.index_count, GL_UNSIGNED_INT, None)
