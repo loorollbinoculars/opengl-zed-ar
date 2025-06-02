@@ -23,7 +23,7 @@ class GLViewer:
             sl.Resolution(1920, 1080), camera_v_fov)
         self.draw_background = True
         self.draw_cubes = True
-        self.cubes = [Cube(False, 0.1, camera_v_fov, [i, j])
+        self.cubes = [Cube(False, 0.1, self.camera.proj, [i, j])
                       for i in range(-3, 3) for j in range(-3, 3)]
 
     def init(self, _argc, _argv):  # _params = sl.CameraParameters
@@ -93,7 +93,8 @@ class GLViewer:
 
     def on_resize(self, Width, Height):
         glViewport(0, 0, Width, Height)
-        self.camera.setProjection(self.camera.fov, Height / Width)
+        self.camera.proj = self.camera.build_perspective(
+            self.camera.fov, Height / Width, self.camera.znear, self.camera.zfar)
 
     def draw_callback(self):
         if self.available:
@@ -123,22 +124,21 @@ class CameraGL:
         self.projectionMatrix = sl.Matrix4f()
         self.vpMatrix = sl.Matrix4f()
         self.projectionMatrix.set_identity()
-        self.setProjection(camera_v_fov, 1.77778)
+        # TODO: don't hardcode these.
+        self.proj = self.build_perspective(camera_v_fov,  16/9, 0.2, 10.0)
 
     def update(self, new_extrinsic):
         """Update the view-projection matrix based on the current extrinsic matrix."""
         self.viewMatrix = new_extrinsic
 
-    def setProjection(self, camera_v_fov, im_ratio):
-        """Set the projection matrix based on the vertical field of view and image aspect ratio."""
-        fov_x = camera_v_fov * 3.1416 / 180.
-        fov_y = camera_v_fov * im_ratio * 3.1416 / 180.
-
-        self.projectionMatrix[(0, 0)] = 1. / math.tan(fov_x * .5)
-        self.projectionMatrix[(1, 1)] = 1. / math.tan(fov_y * .5)
-        self.projectionMatrix[(2, 2)] = -(self.zfar + self.znear) / \
-            (self.zfar - self.znear)
-        self.projectionMatrix[(3, 2)] = -1.
-        self.projectionMatrix[(2, 3)] = -(2. * self.zfar *
-                                          self.znear) / (self.zfar - self.znear)
-        self.projectionMatrix[(3, 3)] = 0.
+    @staticmethod
+    def build_perspective(fov_y, aspect, z_near, z_far):
+        """Return a 4x4 perspective projection matrix as np.float32."""
+        f = 1.0 / math.tan(math.radians(fov_y) * 0.5)
+        proj = np.zeros((4, 4), dtype=np.float32)
+        proj[0, 0] = f / aspect
+        proj[1, 1] = f
+        proj[2, 2] = (z_far + z_near) / (z_near - z_far)
+        proj[2, 3] = (2 * z_far * z_near) / (z_near - z_far)
+        proj[3, 2] = -1.0
+        return proj
