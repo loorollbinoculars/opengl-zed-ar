@@ -52,7 +52,9 @@ void main() {
 
     /* 2. linear depth in metres from the texture -------------- */
     float d_radial  = texture(u_depthTex, uv).r;
-
+    if (isinf(d_radial)){
+        d_radial = 0.0;  // TODO: this might be slowing things down a bunch.
+    }
     /* 3. convert to eye-space z                                */
     float z_eye     = d_radial * (-dir.z);          // positive metres
 

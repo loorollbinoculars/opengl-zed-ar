@@ -50,7 +50,6 @@ def main():
     viewer.init(1, sys.argv)
     image = sl.Mat()
     depth_map = sl.Mat(res.width, res.height, sl.MAT_TYPE.F32_C1, sl.MEM.CPU)
-
     while viewer.is_available():
         if zed.grab(runtime_params) == sl.ERROR_CODE.SUCCESS:
             zed.retrieve_measure(
