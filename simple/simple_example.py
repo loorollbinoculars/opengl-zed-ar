@@ -2,11 +2,9 @@
     This sample demonstrates how to capture a live depth map
     with the ZED SDK and project it out as a deformed plane.
 """
-import numpy as np
 import sys
 from simple_viewer import GLViewer
 import pyzed.sl as sl
-import argparse
 
 
 def setup_zed_camera():

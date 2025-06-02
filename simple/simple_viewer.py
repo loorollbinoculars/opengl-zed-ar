@@ -2,12 +2,9 @@ from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
 
-import ctypes
-import sys
 import math
 from threading import Lock
 import numpy as np
-import array
 
 import pyzed.sl as sl
 from objects import FullScreenQuad, Cube
