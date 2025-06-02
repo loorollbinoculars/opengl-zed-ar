@@ -53,7 +53,7 @@ def main():
     while viewer.is_available():
         if zed.grab(runtime_params) == sl.ERROR_CODE.SUCCESS:
             zed.retrieve_measure(
-                depth_map, sl.MEASURE.DEPTH, sl.MEM.CPU, res)
+                depth_map, sl.MEASURE.DEPTH, sl.MEM.CPU, res)  # We are using CPU memory here, we should eventually go the Cuda Interop way
             zed.get_position(cam_pose, sl.REFERENCE_FRAME.WORLD)
             # Print camera position in world coordinates
             zed.retrieve_image(
