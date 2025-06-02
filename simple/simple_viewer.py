@@ -101,13 +101,13 @@ class GLViewer:
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
             glClearColor(
                 self.bckgrnd_clr[0], self.bckgrnd_clr[1], self.bckgrnd_clr[2], 1.)
+
             with self.mutex:
+                self.background.draw() if self.draw_background else None
                 if self.draw_cubes:
                     for cube in self.cubes:
                         cube.viewMatrix = self.camera.viewMatrix
                         cube.draw()
-
-            self.background.draw() if self.draw_background else None
             glutSwapBuffers()
             glutPostRedisplay()
 

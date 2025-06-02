@@ -78,7 +78,7 @@ RED_FRAGMENT_SHADER = """
 #version 330 core
 out vec4 out_Color;
 void main() {
-    out_Color = vec4(107/255.0,194/255.0,184/255.0,1.0);  // CMR Green
+    out_Color = vec4(107/255.0,194/255.0,184/255.0,0.2);  // CMR Green
 }
 """
 
@@ -170,8 +170,6 @@ class FullScreenQuad:
 
     def draw(self):
         """Draws the full-screen quad with the bound texture."""
-        # glDisable(GL_DEPTH_TEST)
-        glDepthMask(GL_FALSE)
         glUseProgram(self.shader.get_program_id())
         glActiveTexture(GL_TEXTURE0)
         glBindTexture(GL_TEXTURE_2D, self.rgb_tex)
@@ -186,7 +184,6 @@ class FullScreenQuad:
 
         glBindTexture(GL_TEXTURE_2D, 0)
         glUseProgram(0)
-        glDepthMask(GL_TRUE)                  # restore depth mask
 
     def update(self, image: sl.Mat, depth_map: sl.Mat):
         """Updates the texture to be displayed on the quad."""
@@ -311,6 +308,8 @@ class Cube:
             self.shader.get_program_id(), "u_mvpMatrix")
 
     def draw(self):
+
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         glUseProgram(self.shader.get_program_id())
         glUniformMatrix4fv(self.mvp_loc, 1, GL_TRUE,
                            self.proj @ self.viewMatrix @ self.model)
