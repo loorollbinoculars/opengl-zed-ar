@@ -26,7 +26,9 @@ class GLViewer:
         self.cubes = [Cube(False, 0.1, self.camera.proj, [i, j])
                       for i in range(-3, 3) for j in range(-3, 3)]
 
-    def init(self, _argc, _argv):  # _params = sl.CameraParameters
+    def init(self, _argc, _argv):
+        # We need a separate init, like we do with the objects, because we have to create the OpenGL context
+        # before we can use OpenGL functions.
         glutInit(_argc, _argv)
         wnd_w = int(glutGet(GLUT_SCREEN_WIDTH)*0.9)
         wnd_h = int(glutGet(GLUT_SCREEN_HEIGHT) * 0.9)
@@ -58,7 +60,7 @@ class GLViewer:
         glutReshapeFunc(self.on_resize)
         self.available = True
 
-        # Initialise objects:
+        # Initialise objects now that the OpenGL context is created.:
         self.background.init()
         for cube in self.cubes:
             cube.init()

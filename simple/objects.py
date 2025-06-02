@@ -12,6 +12,21 @@ import math
 # - Add a simple 3D object class that can be used to draw the XYZ axis and the origin of the world.
 # - Figure out if you can just use the depth map, scale it to [0, 1], and use its values as the Z coordinate of the Screen vertex shader.!!!!
 
+BUTTON_VERT = """
+#version 330 core
+layout(location = 0) in vec2 in_Pos;   // -1..+1 clip-space
+void main() {
+    gl_Position = vec4(in_Pos, 1.0, 1.0);   // already in clip-space, at the back
+}
+"""
+
+BUTTON_FRAG = """
+#version 330 core
+out vec4 out_Color;
+void main() {
+    out_Color = vec4(230.0/255.0,17.0/255.0,123.0/255.0,1.0);  // CMR Pink
+}
+"""
 
 SCREEN_VERT = """
 #version 330 core
@@ -74,20 +89,23 @@ void main() {
     gl_Position = vec4(in_Vertex, 1);
 }
 """
-RED_FRAGMENT_SHADER = """
-#version 330 core
-out vec4 out_Color;
-void main() {
-    out_Color = vec4(107/255.0,194/255.0,184/255.0,0.2);  // CMR Green
-}
-"""
 
 CUBE_PROJECTION_SHADER = """
 #version 330 core
 layout(location = 0) in vec3 in_Vertex;
 uniform mat4 u_mvpMatrix;   // Model-View-Projection matrix
+out vec3 out_Vertex;
 void main() {
     gl_Position = u_mvpMatrix * vec4(in_Vertex, 1);
+    out_Vertex = in_Vertex;  // Pass through vertex position
+}
+"""
+CUBE_FRAGMENT_SHADER = """
+#version 330 core
+in vec3 out_Vertex;
+out vec4 out_Color;
+void main() {
+    out_Color = vec4(107/255.0,194/255.0,184/255.0, -out_Vertex.y);  // Color based on vertex position
 }
 """
 
@@ -100,6 +118,7 @@ class FullScreenQuad:
         self.resolution = resolution
         self.camera_fov = camera_fov
         self.drawing_type = GL_TRIANGLES
+
         self.quad = np.array([
             -1, -1,   0, 0,
             1, -1,   1, 0,
@@ -235,7 +254,7 @@ class Cube:
         self.proj = perspective_matrix
 
     def init(self):
-        self.shader = Shader(CUBE_PROJECTION_SHADER, RED_FRAGMENT_SHADER)
+        self.shader = Shader(CUBE_PROJECTION_SHADER, CUBE_FRAGMENT_SHADER)
 
         self.vao = glGenVertexArrays(1)
         self.vbo = glGenBuffers(1)
