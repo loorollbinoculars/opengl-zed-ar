@@ -30,6 +30,7 @@ class GLViewer:
         # We need a separate init, like we do with the objects, because we have to create the OpenGL context
         # before we can use OpenGL functions.
         glutInit(_argc, _argv)
+        # Don't use the full screen.
         wnd_w = int(glutGet(GLUT_SCREEN_WIDTH)*0.9)
         wnd_h = int(glutGet(GLUT_SCREEN_HEIGHT) * 0.9)
         glutInitWindowSize(wnd_w, wnd_h)
@@ -107,6 +108,9 @@ class GLViewer:
 
             with self.mutex:
                 self.background.draw() if self.draw_background else None
+                # ALWAYS draw the cubes last, since they are transparent.
+                # This cannot be changed!!!
+                # TODO: sort them by distance to the camera so transparency works correctly.
                 if self.draw_cubes:
                     for cube in self.cubes:
                         cube.viewMatrix = self.camera.viewMatrix
