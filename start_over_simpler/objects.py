@@ -59,7 +59,7 @@ void main() {
     /* 4. finally: eye-space z → depth-buffer value ------------ */
     float z_buffer  = clamp(eyeZ_to_depth(z_eye, u_near, u_far), 0.0, 1.0);
 
-    out_Color = vec4 (0.0, z_buffer, 0.0, 1.0);
+    out_Color = texture(u_tex, uv);
     gl_FragDepth = z_buffer;  // Scale depth to [0, 1] range);
 }
 """
