@@ -1,3 +1,5 @@
+"""Basic GLUT viewer for ZED data."""
+
 from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
@@ -77,7 +79,7 @@ class GLViewer:
     def updateData(self, extrinsic_matrix: sl.Transform, mat, depth):
         self.mutex.acquire()
         self.background.update(mat, depth)
-        extrinsic_matrix.inverse()
+        extrinsic_matrix.inverse()  # TODO this should be done one level up.
         self.camera.viewMatrix = extrinsic_matrix.m
         self.mutex.release()
 
@@ -111,6 +113,8 @@ class GLViewer:
 
 
 class CameraGL:
+    """Simple class to hold the projection and view matrices for the scene."""
+
     def __init__(self, camera_v_fov):
         self.znear = 0.001
         self.zfar = 10.0

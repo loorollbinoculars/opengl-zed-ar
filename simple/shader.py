@@ -1,3 +1,5 @@
+"""Shader helper class to compile and link basic vertex and fragment shaders."""
+
 from OpenGL.GL import *
 
 
