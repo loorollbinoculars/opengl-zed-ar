@@ -31,9 +31,36 @@ in vec2 uv;
 uniform sampler2D u_tex;
 uniform sampler2D u_depthTex;  // For depth rendering
 out vec4 out_Color;
+uniform float u_near;              // 0.10, 0.05, …
+uniform float u_far;               // 10.0
+uniform float u_fovY;              // radians
+uniform float u_aspect;            // width / height
+
+
+float eyeZ_to_depth(float z, float n, float f)
+{
+    return (1.0/z - 1.0/n) / (1.0/f - 1.0/n);
+}
+
 void main() {
-    out_Color = texture(u_tex, uv);
-    gl_FragDepth = texture(u_depthTex, uv).r;
+    /* 1. view-ray direction ----------------------------------- */
+    vec2 ndc = vec2(uv.x * 2.0 - 1.0,
+                    (1.0 - uv.y) * 2.0 - 1.0);      // flip Y
+
+    vec2 tanHalfFov = vec2(u_aspect, 1.0) * tan(u_fovY * 0.5);
+    vec3 dir        = normalize(vec3(ndc * tanHalfFov, -1.0));
+
+    /* 2. linear depth in metres from the texture -------------- */
+    float d_radial  = texture(u_depthTex, uv).r;
+
+    /* 3. convert to eye-space z                                */
+    float z_eye     = d_radial * (-dir.z);          // positive metres
+
+    /* 4. finally: eye-space z → depth-buffer value ------------ */
+    float z_buffer  = clamp(eyeZ_to_depth(z_eye, u_near, u_far), 0.0, 1.0);
+
+    out_Color = vec4 (0.0, z_buffer, 0.0, 1.0);
+    gl_FragDepth = z_buffer;  // Scale depth to [0, 1] range);
 }
 """
 
@@ -45,11 +72,11 @@ void main() {
     gl_Position = vec4(in_Vertex, 1);
 }
 """
-TRIANGLE_FRAGMENT_SHADER = """
+RED_FRAGMENT_SHADER = """
 #version 330 core
 out vec4 out_Color;
 void main() {
-    out_Color = vec4(1.0,0.0,0.0,1.0);  // Red triangle
+    out_Color = vec4(107/255.0,194/255.0,184/255.0,1.0);  // CMR Green
 }
 """
 
@@ -66,9 +93,10 @@ void main() {
 class FullScreenQuad:
     """A simple full-screen quad for rendering textures."""
 
-    def __init__(self, resolution):
+    def __init__(self, resolution, camera_fov):
         self.is_init = False
         self.resolution = resolution
+        self.camera_fov = camera_fov
         self.drawing_type = GL_TRIANGLES
         self.quad = np.array([
             -1, -1,   0, 0,
@@ -103,7 +131,21 @@ class FullScreenQuad:
             self.shader.get_program_id(), "u_tex")
         self.depth_tex_loc = glGetUniformLocation(
             self.shader.get_program_id(), "u_depthTex")
-
+        self.u_near_loc = glGetUniformLocation(
+            self.shader.get_program_id(), "u_near")
+        self.u_far_loc = glGetUniformLocation(
+            self.shader.get_program_id(), "u_far")
+        self.u_fovY_loc = glGetUniformLocation(
+            self.shader.get_program_id(), "u_fovY")
+        self.u_aspect_loc = glGetUniformLocation(
+            self.shader.get_program_id(), "u_aspect")
+        glUseProgram(self.shader.get_program_id())
+        glUniform1f(self.u_near_loc, 0.2)
+        glUniform1f(self.u_far_loc, 10.0)
+        glUniform1f(self.u_fovY_loc, self.camera_fov *
+                    math.pi / 180.0)  # convert to radians
+        glUniform1f(self.u_aspect_loc, 16/9)
+        glUseProgram(0)
         #  --------- allocate empty texture once ----------
         self.rgb_tex = glGenTextures(1)
         glBindTexture(GL_TEXTURE_2D, self.rgb_tex)
@@ -134,7 +176,7 @@ class FullScreenQuad:
         glUniform1i(self.tex_loc, 0)          # texture unit 0
         glActiveTexture(GL_TEXTURE1)
         glBindTexture(GL_TEXTURE_2D, self.depth_tex)
-        glUniform1i(self.depth_tex_loc, 1)          # texture unit 0
+        glUniform1i(self.depth_tex_loc, 1)          # texture unit 1
 
         glBindVertexArray(self.quadVAO)
         glDrawArrays(self.drawing_type, 0, 6)
@@ -143,7 +185,6 @@ class FullScreenQuad:
         glBindTexture(GL_TEXTURE_2D, 0)
         glUseProgram(0)
         glDepthMask(GL_TRUE)                  # restore depth mask
-        glEnable(GL_DEPTH_TEST)               # restore for 3-D stuff
 
     def update(self, image: sl.Mat, depth_map: sl.Mat):
         """Updates the texture to be displayed on the quad."""
@@ -174,7 +215,7 @@ class Triangle:
         self.mvp[:3, 3] = position
 
     def init(self):
-        self.shader = Shader(TRIANGLE_VERTEX_SHADER, TRIANGLE_FRAGMENT_SHADER)
+        self.shader = Shader(TRIANGLE_VERTEX_SHADER, RED_FRAGMENT_SHADER)
 
         self.vao = glGenVertexArrays(1)
         self.vbo = glGenBuffers(1)
@@ -236,12 +277,12 @@ class Cube:
             self.model[0:3:2, 3] = position2D
         else:
             self.model[0:3:2, 3] = np.random.random(2)
-        self.model[1, 3] = scale/2
+        self.model[1, 3] = scale/2 + np.random.random()
         self.viewMatrix = np.eye(4, dtype=np.float32)  # identity
-        self.proj = self._perspective(v_fov, 16/9, 0.1, 100.0)
+        self.proj = self._perspective(v_fov, 16/9, 0.2, 10.0)
 
     def init(self):
-        self.shader = Shader(CUBE_PROJECTION_SHADER, TRIANGLE_FRAGMENT_SHADER)
+        self.shader = Shader(CUBE_PROJECTION_SHADER, RED_FRAGMENT_SHADER)
 
         self.vao = glGenVertexArrays(1)
         self.vbo = glGenBuffers(1)

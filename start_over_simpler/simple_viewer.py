@@ -10,7 +10,7 @@ import numpy as np
 import array
 
 import pyzed.sl as sl
-from objects import FullScreenQuad, Triangle, Cube
+from objects import FullScreenQuad, Cube
 
 M_PI = 3.1415926
 
@@ -20,7 +20,10 @@ class GLViewer:
         self.available = False
         self.mutex = Lock()
         self.camera = CameraGL(camera_v_fov)
-        self.background = FullScreenQuad(sl.Resolution(1920, 1080))
+        self.background = FullScreenQuad(
+            sl.Resolution(1920, 1080), camera_v_fov)
+        self.draw_background = True
+        self.draw_cubes = True
         self.cubes = [Cube(False, 0.1, camera_v_fov, [i, j])
                       for i in range(-3, 3) for j in range(-3, 3)]
 
@@ -69,6 +72,10 @@ class GLViewer:
     def keyPressedCallback(self, key, x, y):
         if ord(key) == 27:
             self.exit()
+        if ord(key) == ord(' '):
+            self.draw_background = not self.draw_background
+        if ord(key) == ord('c'):
+            self.draw_cubes = not self.draw_cubes
 
     def updateData(self, extrinsic_matrix: sl.Transform, mat, depth):
         self.mutex.acquire()
@@ -96,19 +103,20 @@ class GLViewer:
             glClearColor(
                 self.bckgrnd_clr[0], self.bckgrnd_clr[1], self.bckgrnd_clr[2], 1.)
             with self.mutex:
-                for cube in self.cubes:
-                    cube.viewMatrix = self.camera.viewMatrix
-                    cube.draw()
-                self.background.draw()
+                if self.draw_cubes:
+                    for cube in self.cubes:
+                        cube.viewMatrix = self.camera.viewMatrix
+                        cube.draw()
 
+            self.background.draw() if self.draw_background else None
             glutSwapBuffers()
             glutPostRedisplay()
 
 
 class CameraGL:
     def __init__(self, camera_v_fov):
-        self.znear = 0.5
-        self.zfar = 100.
+        self.znear = 0.001
+        self.zfar = 10.0
         self.fov = camera_v_fov
         self.viewMatrix = np.eye(4)  # View matrix in practice
         self.projectionMatrix = sl.Matrix4f()
